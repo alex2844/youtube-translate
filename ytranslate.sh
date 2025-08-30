@@ -2,10 +2,9 @@
 set -euo pipefail
 trap handle_exit EXIT
 
-COOKIE_ARGS='--cookies /content/www.youtube.com_cookies.txt'
 __file="$(basename $0)"
 
-VERSION='1.0.0'
+VERSION='1.0.1'
 HELP="
 Usage: ${__file} [OPTION...] <URL>
 Options:
@@ -14,6 +13,7 @@ Options:
 	-r, --height=<int>          Set height
 	-f, --from_lang=<str>       Set from language (en, ru, zh, ko, ar, fr, it, es, de, ja)
 	-t, --to_lang=<str>         Set to language (ru, en, kk)
+	-c, --cookies=<path>        Set path to cookies file
 Set INSTALL_DEPENDENCIES=1 for automatic install dependencies.
 "
 
@@ -71,7 +71,7 @@ install_dependency() {
 echo "[INFO] Script started"
 
 if (( $# > 0 )); then
-	while getopts hvr:-:f:-:t:-: OPT; do
+	while getopts hvr:-:f:-:t:-:c:-: OPT; do
 		if [ "${OPT}" = "-" ]; then
 			OPT="${OPTARG%%=*}"
 			OPTARG="${OPTARG#"$OPT"}"
@@ -98,6 +98,9 @@ if (( $# > 0 )); then
 				TOLANG="${OPTARG}"
 				echo "[INFO] Target language set to: ${TOLANG}"
 			;;
+			c | cookies )
+				COOKIES="${OPTARG}"
+			;;
 		esac
 	done
 	shift $((OPTIND - 1))
@@ -118,6 +121,11 @@ install_dependency "python3.10"
 install_dependency "spleeter" "pip" "numpy==1.26.4"
 install_dependency "yt-dlp" "pip"
 install_dependency "vot-cli" "npm"
+
+COOKIE_ARGS=""
+if [[ -n "${COOKIES:-}" ]] && [[ -f "${COOKIES}" ]]; then
+	COOKIE_ARGS="--cookies ${COOKIES}"
+fi
 
 if [[ "${URL}" != *"://"* ]] && [[ "${URL}" == *"/MyDrive/"* ]] && [[ -n "${COLAB_RELEASE_TAG:-}" ]]; then
 	echo "[INFO] Google Drive file detected, extracting file ID"
