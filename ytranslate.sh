@@ -71,15 +71,17 @@ function install_dependency() {
 	local dependency="${1%%=*}"
 	local pkg_manager="${2:-apt}"
 	local pkg_name="${3:-${dependency}}"
+	local sudo=""
 	if ! command -v "${dependency}" &>/dev/null; then
 		if ! "${INSTALL_DEPENDENCIES}"; then
 			error "Dependency '${dependency}' is missing. Please install it manually or set INSTALL_DEPENDENCIES=true"
 		fi
 		log "Installing: ${dependency}..."
+		[ "$(id -u)" -gt 0 ] && sudo="sudo"
 		case "${pkg_manager}" in
 			apt)
 				if command -v apt-get &>/dev/null; then
-					sudo apt-get update -qq && sudo apt-get install -y "${pkg_name}" >/dev/null
+					${sudo} apt-get update -qq && ${sudo} apt-get install -y "${pkg_name}" >/dev/null
 				else
 					error "apt-get not found. Cannot auto-install '${dependency}'. Please install it manually."
 				fi
@@ -94,7 +96,7 @@ function install_dependency() {
 				if ! command -v npm &>/dev/null; then
 					install_dependency "npm"
 				fi
-				sudo npm install -g "${pkg_name}" >/dev/null
+				${sudo} npm install -g "${pkg_name}" >/dev/null
 			;;
 		esac
 	fi
