@@ -1,229 +1,312 @@
 #!/usr/bin/env bash
 set -euo pipefail
-trap handle_exit EXIT
 
-__file="$(basename $0)"
+readonly VERSION='2.0.0'
+: "${COOKIES:=}"
+: "${URL:=}"
+: "${LOCAL_PATH=}"
+: "${FROMLANG="en"}"
+: "${TOLANG="ru"}"
+: "${HEIGHT=0}"
+: "${ORIG_VOLUME=0.15}"
+: "${TEMP_DIR=".ytranslate"}"
+: "${OUTPUT_EXT="mkv"}"
+: "${OUTPUT_DIR="."}"
+: "${NO_CLEANUP=false}"
+: "${FORCE_IPV4=false}"
 
-VERSION='1.0.1'
-HELP="
-Usage: ${__file} [OPTION...] <URL>
-Options:
-	-h, --help                  Show help options
-	-v, --version               Show version information
-	-r, --height=<int>          Set height
-	-f, --from_lang=<str>       Set from language (en, ru, zh, ko, ar, fr, it, es, de, ja)
-	-t, --to_lang=<str>         Set to language (ru, en, kk)
-	-c, --cookies=<path>        Set path to cookies file
-Set INSTALL_DEPENDENCIES=1 for automatic install dependencies.
-"
+CURRENT_CACHE=""
+YTDLP_OPTS=()
+if [[ -n "${COLAB_RELEASE_TAG:-}" ]]; then
+	INSTALL_DEPENDENCIES="true"
+else
+	INSTALL_DEPENDENCIES="${INSTALL_DEPENDENCIES:-false}"
+fi
 
-handle_exit() {
-	echo "[INFO] Exiting script, cleaning up temp files..."
-	rm -rf ".ytranslate" "pretrained_models"
+function usage() {
+	echo "Usage: "$0" [OPTION...] <URL> [LOCAL_FILE]"
+	echo "Options:"
+	echo "  -h, --help             Show help"
+	echo "  -v, --version          Show version"
+	echo "  -4, --ipv4             Force IPv4"
+	echo "  -r, --height=<int>     Max video height (e.g. 1080). Default: 0 (Best)"
+	echo "  -f, --from_lang=<str>  Source language (default: en)"
+	echo "  -t, --to_lang=<str>    Target language (default: ru)"
+	echo "  -c, --cookies=<path>   Cookies path"
+	echo "  -o, --output=<path>    Output directory"
+	echo "  --temp-dir=<path>      Temporary directory"
+	echo "  --no-cleanup           Keep temp files"
+	echo ""
+	echo "Environment:"
+	echo "  INSTALL_DEPENDENCIES   Set 'true' to auto-install packages (default: false)"
+	echo ""
+	echo "Examples:"
+	echo "  "$0" https://youtu.be/VIDEO_ID"
+	echo "  "$0" https://youtu.be/VIDEO_ID my_video.mp4"
+	echo "  "$0" -c cookies.txt https://www.youtube.com/playlist?list=WL"
 }
 
-install_dependency() {
-	local pkg="${2:-apt}"
+function cleanup() {
+	local exit_code=$?
+	if ! "${NO_CLEANUP}" && [[ -n "${CURRENT_CACHE}" ]] && [[ -d "${CURRENT_CACHE}" ]]; then
+		rm -rf "${CURRENT_CACHE}"
+	fi
+	if [[ -d "${TEMP_DIR}" ]] && [[ -z "$(ls -A "${TEMP_DIR}")" ]]; then
+		rm -rf "${TEMP_DIR}"
+	fi
+	exit "${exit_code}"
+}
+trap cleanup EXIT INT TERM
+
+function error() {
+	echo -e "❌ [ERROR] ${1:-}" >&2
+	exit 1
+}
+
+function log() {
+	echo "[INFO] ${1:-}"
+}
+
+function install_dependency() {
 	local dependency="${1%%=*}"
-	local dependencies="${dependency}"
-	local arg=''
-	[[ -n "${3:-}" ]] && dependencies="${dependencies} ${3}"
-
+	local pkg_manager="${2:-apt}"
+	local pkg_name="${3:-${dependency}}"
 	if ! command -v "${dependency}" &>/dev/null; then
-		echo "[INFO] Installing missing dependency: ${dependency}"
-		if [[ "${INSTALL_DEPENDENCIES:-0}" == "1" ]] || [[ -n "${COLAB_RELEASE_TAG:-}" ]]; then
-			if [ $(id -u) -ne 0 ]; then
-				echo "[ERROR] access denied (root required for install: ${dependency})"
-				exit 1
-			fi
-			if [[ "${pkg}" == "apt" ]]; then
-				arg='-y'
-			elif [[ "${pkg}" == "pip" ]]; then
-				if ! command -v "${pkg}" &>/dev/null; then
-					echo "[INFO] pip not found, attempting to install pip"
-					install_dependency "pip"
+		if ! "${INSTALL_DEPENDENCIES}"; then
+			error "Dependency '${dependency}' is missing. Please install it manually or set INSTALL_DEPENDENCIES=true"
+		fi
+		log "Installing: ${dependency}..."
+		case "${pkg_manager}" in
+			apt)
+				if command -v apt-get &>/dev/null; then
+					sudo apt-get update -qq && sudo apt-get install -y "${pkg_name}" >/dev/null
+				else
+					error "apt-get not found. Cannot auto-install '${dependency}'. Please install it manually."
 				fi
-			elif [[ "${pkg}" == "npm" ]]; then
-				if ! command -v "${pkg}" &>/dev/null; then
-					echo "[INFO] npm not found, attempting to install Node.js"
-					curl -fsSL https://raw.githubusercontent.com/tj/n/master/bin/n | bash -s install lts
+			;;
+			pip)
+				if ! command -v pip &>/dev/null && ! command -v pip3 &>/dev/null; then
+					install_dependency "pip" "apt" "python3-pip"
 				fi
-				arg='-g'
-			fi
-			if ! "${pkg}" install ${arg} ${dependencies}; then
-				echo "[ERROR] ${dependency}: install failed"
-				exit 1
-			fi
-		else
-			echo "[ERROR] ${dependency} not found and auto-install disabled"
-			exit 1
-		fi
-	fi
-	if [[ "${dependency}" =~ ^python ]] && ([[ "${INSTALL_DEPENDENCIES:-0}" == "1" ]] || [[ -n "${COLAB_RELEASE_TAG:-}" ]]); then
-		if [[ ! $(python3 -V 2>&1 | awk '{print $2}') =~ ^"${dependency:6}" ]]; then
-			echo "[INFO] Updating python3 alternatives to ${dependency}"
-			update-alternatives --set python3 "$(which ${dependency})"
-			apt install -y python3-pip
-		fi
-	fi
-}
-
-echo "[INFO] Script started"
-
-if (( $# > 0 )); then
-	while getopts hvr:-:f:-:t:-:c:-: OPT; do
-		if [ "${OPT}" = "-" ]; then
-			OPT="${OPTARG%%=*}"
-			OPTARG="${OPTARG#"$OPT"}"
-			OPTARG="${OPTARG#=}"
-		fi
-		case "$OPT" in
-			h | help )
-				echo "${HELP:1}"
-				exit
+				python3 -m pip install --quiet --break-system-packages "${pkg_name}"
 			;;
-			v | version )
-				echo "${VERSION}"
-				exit
-			;;
-			r | height )
-				HEIGHT="${OPTARG}"
-				echo "[INFO] Video height set to: ${HEIGHT}"
-			;;
-			f | from_lang )
-				FROMLANG="${OPTARG}"
-				echo "[INFO] Source language set to: ${FROMLANG}"
-			;;
-			t | to_lang )
-				TOLANG="${OPTARG}"
-				echo "[INFO] Target language set to: ${TOLANG}"
-			;;
-			c | cookies )
-				COOKIES="${OPTARG}"
+			npm)
+				if ! command -v npm &>/dev/null; then
+					install_dependency "npm"
+				fi
+				sudo npm install -g "${pkg_name}" >/dev/null
 			;;
 		esac
-	done
-	shift $((OPTIND - 1))
-	if (( $# > 0 )); then
-		URL="$1"
-		echo "[INFO] URL set to: ${URL}"
 	fi
-fi
-if [[ -z "${URL:-}" ]]; then
-	echo "[ERROR] URL not specified"
-	echo "${HELP:1}" | head -n 1
-	exit 1
-fi
+}
 
-echo "[INFO] Checking and installing dependencies..."
-install_dependency "ffmpeg"
-install_dependency "python3.10"
-install_dependency "spleeter" "pip" "numpy==1.26.4"
-install_dependency "yt-dlp" "pip"
-install_dependency "vot-cli" "npm"
+function check_dependencies() {
+	log "Checking base dependencies..."
+	install_dependency "ffmpeg"
+	install_dependency "python3"
+	install_dependency "yt-dlp" "pip"
+	install_dependency "vot-cli" "npm" "https://github.com/alex2844/vot-cli/tarball/yandexdisk"
+}
 
-COOKIE_ARGS=""
-if [[ -n "${COOKIES:-}" ]] && [[ -f "${COOKIES}" ]]; then
-	COOKIE_ARGS="--cookies ${COOKIES}"
-fi
+function get_clean_filename() {
+	local url="$1"
+	yt-dlp "${YTDLP_OPTS[@]}" --restrict-filenames --print filename -o "%(title)s.%(ext)s" "${url}"
+}
 
-if [[ "${URL}" != *"://"* ]] && [[ "${URL}" == *"/MyDrive/"* ]] && [[ -n "${COLAB_RELEASE_TAG:-}" ]]; then
-	echo "[INFO] Google Drive file detected, extracting file ID"
-	install_dependency "xattr"
-	filepath="${URL}"
-	filename=$(basename "${filepath}")
-	fileid=$(xattr -p 'user.drive.id' "${URL}")
-	URL="https://drive.google.com/file/d/${fileid}/view"
-	echo "[INFO] Updated Google Drive URL: ${URL}"
-else
-	if [[ "${URL}" =~ ^(https?://)?((www.|m.)?youtube(-nocookie)?.com)|(youtu.be) ]]; then
-		audio_format="bestaudio[ext=m4a]"
-		video_format="bestvideo[ext=mp4]"
-		[[ "${HEIGHT:-0}" != "0" ]] && video_format="${video_format}[height<=${HEIGHT}]"
-		echo "[INFO] YouTube video detected, using formats: audio='${audio_format}', video='${video_format}'"
+function translate_video() {
+	local url="$1"
+	local local_file="${2:-}"
+	
+	local need_translation=true
+	if [[ "${FROMLANG}" == "${TOLANG}" ]]; then
+		need_translation=false
+		log "Languages match (${FROMLANG}). Translation step will be SKIPPED."
 	fi
-	unset filepath
-	echo "[INFO] Getting output filename from yt-dlp..."
-	filename=$(yt-dlp ${COOKIE_ARGS} --print filename -o "%(title)s.%(ext)s" "${URL}" \
-           | sed 's/[^a-zA-Z0-9._-]/-/g')
-	echo "[INFO] Download filename: ${filename}"
-fi
-if [[ -z "${filename}" ]]; then
-	echo "[ERROR] file not found"
-	exit 1
-fi
-title=$(echo "${filename}" | sed -E "s/(\.${filename##*.})+$//" | sed 's/--*/-/g' | sed -E 's/(^-|-$)//g' | tr ' ' '_')
-if [[ -f "${title}.mp4" ]]; then
-	echo "[INFO] File '${title}.mp4' already exists. Exiting."
-	exit 0
-fi
 
-cache=".ytranslate/${title}"
-mkdir -p "${cache}"
-echo "[INFO] Cache directory created: ${cache}"
+	local video_format="bestvideo[vcodec^=avc]/bestvideo"
+	local audio_format="bestaudio"
+	[[ "${HEIGHT:-0}" != "0" ]] && video_format="bestvideo[vcodec^=avc][height<=${HEIGHT}]/bestvideo[height<=${HEIGHT}]"
 
-if [[ ! -f "${cache}/audio.mp3" ]]; then
-	echo "[INFO] Downloading translated audio with vot-cli..."
-	if ! vot-cli \
-		--lang="${FROMLANG:-en}" --reslang="${TOLANG:-ru}" \
-		--output="${cache}" --output-file="audio.mp3" "${URL}" >/dev/null || [[ ! -f "${cache}/audio.mp3" ]];
-	then
-		echo "[ERROR] vot-cli failed to download audio."
-		exit 1
-	fi
-fi
-if [[ ! -f "${cache}/audio.m4a" ]] || [[ ! -f "${cache}/video.mp4" ]]; then
-	if [[ -n "${audio_format:-}" ]] && [[ -n "${video_format:-}" ]]; then
-		if [[ ! -f "${cache}/audio.m4a" ]]; then
-			echo "[INFO] Downloading audio (m4a) with yt-dlp..."
-			if ! yt-dlp ${COOKIE_ARGS} -f "${audio_format}" -o "${cache}/audio.m4a" "${URL}" || [[ ! -f "${cache}/audio.m4a" ]]; then
-				echo "[ERROR] yt-dlp failed to download audio."
-				exit 1
-			fi
-		fi
-		if [[ ! -f "${cache}/video.mp4" ]]; then
-			echo "[INFO] Downloading video (mp4) with yt-dlp..."
-			if ! yt-dlp ${COOKIE_ARGS} -f "${video_format}" -o "${cache}/video.mp4" "${URL}" || [[ ! -f "${cache}/video.mp4" ]]; then
-				echo "[ERROR] yt-dlp failed to download video."
-				exit 1
-			fi
-		fi
+	local filename
+	if [[ -n "${local_file}" ]] && [[ -f "${local_file}" ]]; then
+		filename=$(basename "${local_file}")
 	else
-		if [[ -z "${filepath:-}" ]]; then
-			if [[ ! -f "${cache}/${filename}" ]]; then
-				echo "[INFO] Downloading combined audio+video with yt-dlp..."
-				if ! yt-dlp ${COOKIE_ARGS} -o "${cache}/${filename}" "${URL}" || [[ ! -f "${cache}/${filename}" ]]; then
-					echo "[ERROR] yt-dlp failed to download audio+video."
-					exit 1
+		if ! filename=$(get_clean_filename "${url}"); then
+			error "Failed to get filename."
+			return
+		fi
+	fi
+	local title=$(basename "${filename}" | sed -E "s/(\.[a-zA-Z0-9]+)+$//")
+	local final_file="${OUTPUT_DIR}/${title}.${OUTPUT_EXT}"
+	
+	if [[ -f "${final_file}" ]]; then
+		log "File exists: ${final_file}. Skipping."
+		return
+	fi
+
+	log "Processing: ${title}"
+
+	local cache="${TEMP_DIR}/${title}"
+	CURRENT_CACHE="${cache}"
+	mkdir -p "${cache}"
+
+	if "${need_translation}" && [[ ! -f "${cache}/audio_translated.mp3" ]]; then
+		log "Downloading translation..."
+		local translate_ok=true
+		vot-cli --lang="${FROMLANG}" --reslang="${TOLANG}" --output="${cache}" --output-file="audio_translated.mp3" "${url}" >/dev/null || translate_ok=false
+		if ! "${translate_ok}" || [[ ! -f "${cache}/audio_translated.mp3" ]]; then
+			error "VOT-CLI failed to get translation."
+		fi
+	fi
+
+	local video_input=""
+	local audio_input=""
+	if [[ -n "${local_file}" ]] && [[ -f "${local_file}" ]]; then
+		log "Using LOCAL file as source: ${local_file}"
+		video_input="${local_file}"
+		audio_input="${local_file}"
+	else
+		log "Downloading streams..."
+		if ! yt-dlp "${YTDLP_OPTS[@]}" --progress -f "${video_format}" -o "${cache}/video.%(ext)s" "${url}"; then
+			error "Video download failed."
+		fi
+		if ! yt-dlp "${YTDLP_OPTS[@]}" --progress -f "${audio_format}" -o "${cache}/audio.%(ext)s" "${url}"; then
+			error "Audio download failed."
+		fi
+		video_input=$(find "${cache}" -name "video.*" -type f | head -n 1)
+		audio_input=$(find "${cache}" -name "audio.*" -type f | head -n 1)
+	fi
+
+	local mixed_audio="${cache}/mixed_final.mp3"
+	if ! "${need_translation}"; then
+		log "Skipping mix (original audio only), converting to MP3..."
+		ffmpeg -y -hide_banner -loglevel warning -stats \
+			-i "${audio_input}" \
+			-c:a libmp3lame -q:a 2 \
+			-vn "${mixed_audio}"
+	else
+		log "Mixing to MP3 (Fast & Compatible)..."
+		ffmpeg -y -hide_banner -loglevel warning -stats \
+			-i "${audio_input}" \
+			-i "${cache}/audio_translated.mp3" \
+			-filter_complex \
+			"[0:a]volume=${ORIG_VOLUME}[orig];[1:a]volume=1.8[trans];[orig][trans]amix=inputs=2:duration=first[aout]" \
+			-map "[aout]" \
+			-c:a libmp3lame -q:a 2 \
+			-ac 2 \
+			-vn \
+			"${mixed_audio}"
+	fi
+
+	log "Muxing Video + MP3 Audio..."
+	local mux_ok=true
+	ffmpeg -y -hide_banner -loglevel warning -stats \
+		-fflags +genpts \
+		-i "${video_input}" \
+		-i "${mixed_audio}" \
+		-map 0:v -map 1:a \
+		-c:v copy -c:a copy \
+		"${final_file}" || mux_ok=false
+	if "${mux_ok}" && [[ -f "${final_file}" ]]; then
+		log "Done: ${final_file}"
+		if ! "${NO_CLEANUP}"; then
+			rm -rf "${cache}"
+		fi
+		CURRENT_CACHE=""
+	else
+		error "Muxing failed."
+	fi
+}
+
+function main() {
+	if [[ $# -gt 0 ]]; then
+		local OPTIONS="hv4r:f:t:c:o:"
+		local LONGOPTS="help,version,ipv4,height:,from_lang:,to_lang:,cookies:,output:,temp-dir:,no-cleanup"
+		eval set -- $(getopt --options="${OPTIONS}" --longoptions="${LONGOPTS}" --name "$0" -- "$@")
+		while getopts "${OPTIONS}-:" OPT; do
+			if [[ "${OPT}" = "-" ]]; then
+				OPT="${OPTARG}"
+				OPTARG=""
+				if [[ "${LONGOPTS}" =~ (^|,)${OPT}: ]]; then
+					OPTARG="${!OPTIND}"
+					((OPTIND++))
 				fi
 			fi
-			filepath="${cache}/${filename}"
+			case "${OPT}" in
+				h|help)
+					usage;
+					exit 0
+				;;
+				v|version)
+					echo "${VERSION}";
+					exit 0
+				;;
+				4|ipv4) FORCE_IPV4=true;;
+				r|height) HEIGHT="${OPTARG}";;
+				f|from_lang) FROMLANG="${OPTARG}";;
+				t|to_lang) TOLANG="${OPTARG}";;
+				c|cookies) COOKIES="${OPTARG}";;
+				o|output) OUTPUT_DIR="${OPTARG}";;
+				temp-dir) TEMP_DIR="${OPTARG}";;
+				no-cleanup) NO_CLEANUP=true;;
+			esac
+		done
+		shift $((OPTIND - 1))
+		[[ -n "${1:-}" ]] && URL="$1"
+		[[ -n "${2:-}" ]] && LOCAL_PATH="$2"
+	fi
+	if [[ -z "${URL}" ]]; then
+		if [[ -n "${COLAB_RELEASE_TAG:-}" ]]; then
+			error "URL or File not specified."
+		else
+			error "URL not specified."
 		fi
-		echo "[INFO] Splitting audio and video using ffmpeg..."
-		ffmpeg -i "${filepath}" -vn -acodec copy "${cache}/audio.m4a" -an -vcodec copy "${cache}/video.mp4" -nostdin
 	fi
-fi
-if [[ ! -f "${cache}/audio/vocals.wav" ]] || [[ ! -f "${cache}/audio/accompaniment.wav" ]]; then
-	echo "[INFO] Running spleeter for source separation..."
-	if ! spleeter separate -o "${cache}" "${cache}/audio.m4a"; then
-		echo "[ERROR] spleeter failed."
-		exit 1
-	fi
-fi
-echo "[INFO] Mixing translated vocals and instrumental to video..."
-if ! ffmpeg \
-	-i "${cache}/video.mp4" \
-	-i "${cache}/audio.mp3" \
-	-i "${cache}/audio/accompaniment.wav" \
-	-map 0:v \
-	-filter_complex "[1:a][2:a]amix=inputs=2:duration=longest[a]" \
-	-map "[a]" \
-	-c:v copy \
-	-c:a aac -strict experimental -nostdin \
-	"${title}.mp4" || [[ ! -f "${title}.mp4" ]];
-then
-	echo "[ERROR] ffmpeg failed"
-	exit 1
-fi
 
-echo "[INFO] Script completed successfully! Output: ${title}.mp4"
+	YTDLP_OPTS+=(--no-warnings)
+	"${FORCE_IPV4}" && YTDLP_OPTS+=(--force-ipv4)
+	[[ -n "${COOKIES}" ]] && YTDLP_OPTS+=(--cookies "${COOKIES}")
+	
+	check_dependencies
+	mkdir -p "${OUTPUT_DIR}" "${TEMP_DIR}"
+
+	if [[ -n "${COLAB_RELEASE_TAG:-}" ]] && [[ "${URL}" != *"://"* ]] && [[ "${URL}" == *"/MyDrive/"* ]]; then
+		LOCAL_PATH="${URL}"
+		[[ ! -f "${LOCAL_PATH}" ]] && error "File not found: ${LOCAL_PATH}"
+		install_dependency "xattr"
+		local fileid=$(xattr -p 'user.drive.id' "${LOCAL_PATH}" 2>/dev/null)
+		[[ -z "${fileid:-}" ]] && error "File not found: ${LOCAL_PATH}"
+		URL="https://drive.google.com/file/d/${fileid}/view"
+	fi
+
+	if [[ -n "${LOCAL_PATH}" ]]; then
+		[[ ! -f "${LOCAL_PATH}" ]] && error "Local file not found: ${LOCAL_PATH}"
+		log "Single file mode (Local Source)"
+		translate_video "${URL}" "${LOCAL_PATH}"
+	else
+		log "Fetching video list..."
+		local urls=()
+		if [[ "${URL}" == *"youtube.com"* ]] || [[ "${URL}" == *"youtu.be"* ]]; then
+			while IFS= read -r video_id; do
+				if [[ -n "${video_id}" ]] && [[ "${video_id}" != "NA" ]]; then
+					urls+=("https://youtu.be/${video_id}")
+				fi
+			done < <(yt-dlp "${YTDLP_OPTS[@]}" --flat-playlist --print id --ignore-errors "${URL}")
+		else
+			urls+=("${URL}")
+		fi
+		local count=1
+		local total=${#urls[@]}
+		[[ ${total} -eq 0 ]] && error "No videos found."
+		for video_url in "${urls[@]}"; do
+			log "=== [${count}/${total}] Processing ==="
+			translate_video "${video_url}" ""
+			((count++))
+		done
+	fi
+	log "All completed."
+}
+
+if [[ "${BASH_SOURCE:-${0}}" == "${0}" ]]; then
+	main "$@"
+fi
