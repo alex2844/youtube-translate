@@ -19,7 +19,7 @@ readonly VERSION='2.1.0'
 : "${YT_ADD_INDEX:=false}"
 
 CURRENT_CACHE=""
-YTDLP_OPTS=()
+YTDLP_OPTS=(--no-warnings)
 if [[ -n "${COLAB_RELEASE_TAG:-}" ]]; then
 	INSTALL_DEPENDENCIES="true"
 else
@@ -151,7 +151,7 @@ function translate_video() {
 			return
 		fi
 	fi
-	local title=$(basename "${filename}" | sed -E "s/(\.[a-zA-Z0-9]+)+$//")
+	local title=$(basename "${filename}" | sed -E 's/\.+\.([^.]+)$/.\1/' | sed -E "s/(\.[a-zA-Z0-9]+)+$//")
 	if "${YT_ADD_INDEX}" && [[ -n "${playlist_index}" ]]; then
 		title=$(printf "%02d - %s" "${playlist_index}" "${title}")
 	fi
@@ -185,40 +185,50 @@ function translate_video() {
 		audio_input="${local_file}"
 	else
 		log "Downloading streams..."
-		if ! yt-dlp "${YTDLP_OPTS[@]}" --progress -f "${video_format}" -o "${cache}/video.%(ext)s" "${url}"; then
-			error "Video download failed."
-		fi
 		video_input=$(find "${cache}" -name "video.*" -type f | head -n 1)
-
-		if ffprobe -v error -select_streams a -show_entries stream=codec_type "${video_input}" 2>/dev/null | grep -q "audio"; then
-			audio_input="${video_input}"
-		else
-			if ! yt-dlp "${YTDLP_OPTS[@]}" --progress -f "${audio_format}" -o "${cache}/audio.%(ext)s" "${url}"; then
-				error "Audio download failed."
+		if [[ -z "${video_input}" ]]; then
+			if ! yt-dlp "${YTDLP_OPTS[@]}" --progress -f "${video_format}" -o "${cache}/video.%(ext)s" "${url}"; then
+				error "Video download failed."
 			fi
-			audio_input=$(find "${cache}" -name "audio.*" -type f | head -n 1)
+			video_input=$(find "${cache}" -name "video.*" -type f | head -n 1)
+		fi
+
+		audio_input=$(find "${cache}" -name "audio.*" -type f | head -n 1)
+		if [[ -z "${audio_input}" ]]; then
+			if ffprobe -v error -select_streams a -show_entries stream=codec_type "${video_input}" 2>/dev/null | grep -q "audio"; then
+				audio_input="${video_input}"
+			else
+				if ! yt-dlp "${YTDLP_OPTS[@]}" --progress -f "${audio_format}" -o "${cache}/audio.%(ext)s" "${url}"; then
+					error "Audio download failed."
+				fi
+				audio_input=$(find "${cache}" -name "audio.*" -type f | head -n 1)
+			fi
+		fi
+			fi
 		fi
 	fi
 
 	local mixed_audio="${cache}/mixed_final.mp3"
-	if ! "${need_translation}"; then
-		log "Skipping mix (original audio only), converting to MP3..."
-		ffmpeg -y -hide_banner -loglevel warning -stats \
-			-i "${audio_input}" \
-			-c:a libmp3lame -q:a 2 \
-			-vn "${mixed_audio}"
-	else
-		log "Mixing to MP3 (Fast & Compatible)..."
-		ffmpeg -y -hide_banner -loglevel warning -stats \
-			-i "${audio_input}" \
-			-i "${cache}/audio_translated.mp3" \
-			-filter_complex \
-			"[0:a]volume=${YT_ORIG_VOLUME}[orig];[1:a]volume=1.8[trans];[orig][trans]amix=inputs=2:duration=first[aout]" \
-			-map "[aout]" \
-			-c:a libmp3lame -q:a 2 \
-			-ac 2 \
-			-vn \
-			"${mixed_audio}"
+	if [[ ! -f "${mixed_audio}" ]]; then
+		if ! "${need_translation}"; then
+			log "Skipping mix (original audio only), converting to MP3..."
+			ffmpeg -y -hide_banner -loglevel warning -stats \
+				-i "${audio_input}" \
+				-c:a libmp3lame -q:a 2 \
+				-vn "${mixed_audio}"
+		else
+			log "Mixing to MP3 (Fast & Compatible)..."
+			ffmpeg -y -hide_banner -loglevel warning -stats \
+				-i "${audio_input}" \
+				-i "${cache}/audio_translated.mp3" \
+				-filter_complex \
+				"[0:a]volume=${YT_ORIG_VOLUME}[orig];[1:a]volume=1.8[trans];[orig][trans]amix=inputs=2:duration=first[aout]" \
+				-map "[aout]" \
+				-c:a libmp3lame -q:a 2 \
+				-ac 2 \
+				-vn \
+				"${mixed_audio}"
+		fi
 	fi
 
 	log "Muxing Video + MP3 Audio..."
@@ -289,7 +299,6 @@ function main() {
 		fi
 	fi
 
-	YTDLP_OPTS+=(--no-warnings)
 	"${YT_FORCE_IPV4}" && YTDLP_OPTS+=(--force-ipv4)
 	"${YT_MARK_WATCHED}" && YTDLP_OPTS+=(--mark-watched)
 	[[ -n "${YT_COOKIES}" ]] && YTDLP_OPTS+=(--cookies "${YT_COOKIES}")
