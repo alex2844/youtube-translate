@@ -17,6 +17,7 @@ readonly VERSION='2.1.0'
 : "${YT_FORCE_AVC:=false}"
 : "${YT_MARK_WATCHED:=false}"
 : "${YT_ADD_INDEX:=false}"
+: "${YT_SPONSORBLOCK:=true}"
 
 CURRENT_CACHE=""
 YTDLP_OPTS=(--no-warnings)
@@ -40,6 +41,7 @@ function usage() {
 	echo "  --force-avc            Force AVC (h264) video codec"
 	echo "  --mark-watched         Mark video as watched (requires cookies)"
 	echo "  --add-index            Add playlist index to filenames"
+	echo "  --no-sponsorblock      Disable marking sponsor segments (enabled by default)"
 	echo "  --temp-dir=<path>      Temporary directory"
 	echo "  --no-cleanup           Keep temp files"
 	echo ""
@@ -254,7 +256,7 @@ function translate_video() {
 function main() {
 	if [[ $# -gt 0 ]]; then
 		local OPTIONS="hv4r:f:t:c:o:"
-		local LONGOPTS="help,version,ipv4,height:,from_lang:,to_lang:,cookies:,output:,temp-dir:,force-avc,mark-watched,add-index,no-cleanup"
+		local LONGOPTS="help,version,ipv4,height:,from_lang:,to_lang:,cookies:,output:,temp-dir:,force-avc,mark-watched,add-index,no-cleanup,meta,no-sponsorblock"
 		eval set -- $(getopt --options="${OPTIONS}" --longoptions="${LONGOPTS}" --name "$0" -- "$@")
 		while getopts "${OPTIONS}-:" OPT; do
 			if [[ "${OPT}" = "-" ]]; then
@@ -285,6 +287,7 @@ function main() {
 				mark-watched) YT_MARK_WATCHED=true;;
 				add-index) YT_ADD_INDEX=true;;
 				no-cleanup) YT_NO_CLEANUP=true;;
+				no-sponsorblock) YT_SPONSORBLOCK=false;;
 			esac
 		done
 		shift $((OPTIND - 1))
@@ -301,6 +304,7 @@ function main() {
 
 	"${YT_FORCE_IPV4}" && YTDLP_OPTS+=(--force-ipv4)
 	"${YT_MARK_WATCHED}" && YTDLP_OPTS+=(--mark-watched)
+	"${YT_SPONSORBLOCK}" && YTDLP_OPTS+=(--sponsorblock-mark all)
 	[[ -n "${YT_COOKIES}" ]] && YTDLP_OPTS+=(--cookies "${YT_COOKIES}")
 
 	check_dependencies
