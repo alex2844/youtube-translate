@@ -199,7 +199,9 @@ function translate_video() {
 		log "Downloading streams..."
 		video_input=$(find "${cache}" -name "video.*" -type f | head -n 1)
 		if [[ -z "${video_input}" ]]; then
-			if ! yt-dlp "${YTDLP_OPTS[@]}" --progress -f "${video_format}" -o "${cache}/video.%(ext)s" "${url}"; then
+			local video_dlp_opts=("${YTDLP_OPTS[@]}")
+			"${YT_SPONSORBLOCK}" && video_dlp_opts+=(--sponsorblock-mark all)
+			if ! yt-dlp "${video_dlp_opts[@]}" --progress -f "${video_format}" -o "${cache}/video.%(ext)s" "${url}"; then
 				error "Video download failed."
 			fi
 			video_input=$(find "${cache}" -name "video.*" -type f | head -n 1)
@@ -354,7 +356,6 @@ function main() {
 
 	"${YT_FORCE_IPV4}" && YTDLP_OPTS+=(--force-ipv4)
 	"${YT_MARK_WATCHED}" && YTDLP_OPTS+=(--mark-watched)
-	"${YT_SPONSORBLOCK}" && YTDLP_OPTS+=(--sponsorblock-mark all)
 	[[ -n "${YT_COOKIES}" ]] && YTDLP_OPTS+=(--cookies "${YT_COOKIES}")
 
 	check_dependencies
