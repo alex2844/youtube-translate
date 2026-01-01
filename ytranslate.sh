@@ -294,6 +294,11 @@ function translate_video() {
 		if "${YT_GENERATE_META}"; then
 			[[ -f "${cache}/meta.nfo" ]] && cp "${cache}/meta.nfo" "${final_file}.nfo"
 			[[ -f "${cache}/meta.jpg" ]] && cp "${cache}/meta.jpg" "${final_file}-thumb.jpg"
+			[[ -f "${cache}/meta.jpg" ]] && cp "${cache}/meta.jpg" "${final_file}-fanart.jpg"
+		fi
+		if "${YT_MARK_WATCHED}" && [[ -n "${YT_COOKIES}" ]]; then
+			log "Marking video as watched on YouTube..."
+			yt-dlp "${YTDLP_OPTS[@]}" --mark-watched --skip-download "${url}" >/dev/null 2>&1 || log "⚠️ Could not mark video as watched."
 		fi
 		if ! "${YT_NO_CLEANUP}"; then
 			rm -rf "${cache}"
@@ -355,7 +360,6 @@ function main() {
 	fi
 
 	"${YT_FORCE_IPV4}" && YTDLP_OPTS+=(--force-ipv4)
-	"${YT_MARK_WATCHED}" && YTDLP_OPTS+=(--mark-watched)
 	[[ -n "${YT_COOKIES}" ]] && YTDLP_OPTS+=(--cookies "${YT_COOKIES}")
 
 	check_dependencies
