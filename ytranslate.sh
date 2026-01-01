@@ -315,9 +315,17 @@ function translate_video() {
 	if "${mux_ok}" && [[ -f "${final_file}" ]]; then
 		log "Done: ${final_file}"
 		if "${YT_GENERATE_META}"; then
-			[[ -f "${cache}/meta.nfo" ]] && cp "${cache}/meta.nfo" "${final_file}.nfo"
-			[[ -f "${cache}/meta.jpg" ]] && cp "${cache}/meta.jpg" "${final_file}-thumb.jpg"
-			[[ -f "${cache}/meta.jpg" ]] && cp "${cache}/meta.jpg" "${final_file}-fanart.jpg"
+			local base_name="${final_file%.*}"
+			if [[ -f "${cache}/meta.nfo" ]]; then
+				cp "${cache}/meta.nfo" "${base_name}.nfo"
+				cp "${cache}/meta.nfo" "${final_file}.nfo"
+			fi
+			if [[ -f "${cache}/meta.jpg" ]]; then
+				cp "${cache}/meta.jpg" "${base_name}-thumb.jpg"
+				cp "${cache}/meta.jpg" "${base_name}-fanart.jpg"
+				cp "${cache}/meta.jpg" "${final_file}-thumb.jpg"
+				cp "${cache}/meta.jpg" "${final_file}-fanart.jpg"
+			fi
 		fi
 		if "${YT_MARK_WATCHED}" && [[ -n "${YT_COOKIES}" ]]; then
 			log "Marking video as watched on YouTube..."
