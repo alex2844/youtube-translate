@@ -21,7 +21,7 @@ readonly VERSION='main'
 : "${YT_SPONSORBLOCK:=true}"
 
 CURRENT_CACHE=""
-YTDLP_OPTS=(--no-warnings)
+YTDLP_OPTS=(--no-warnings --fragment-retries 10)
 if [[ -n "${COLAB_RELEASE_TAG:-}" ]]; then
 	INSTALL_DEPENDENCIES="true"
 else
