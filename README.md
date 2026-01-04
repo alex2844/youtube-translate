@@ -221,5 +221,5 @@ INSTALL_DEPENDENCIES=true ./ytranslate.sh [ОПЦИИ] <URL>
 [google_url]: https://youtu.be/7-rYQ2QHXgo
 [linux_img]: https://img.youtube.com/vi/gNvPf7nGXFQ/0.jpg "Linux"
 [linux_url]: https://youtu.be/gNvPf7nGXFQ
-[script]: https://raw.githubusercontent.com/alex2844/youtube-translate/main/ytranslate.sh "Open script"
-[notebook]: https://colab.research.google.com/github/alex2844/youtube-translate/blob/main/ytranslate.ipynb "Open In Colab"
+[script]: https://raw.githubusercontent.com/alex2844/youtube-translate/v2.4.1/ytranslate.sh "Open script"
+[notebook]: https://colab.research.google.com/github/alex2844/youtube-translate/blob/v2.4.1/ytranslate.ipynb "Open In Colab"

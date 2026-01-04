@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly VERSION='main'
+readonly VERSION='2.4.1'
 : "${YT_COOKIES:=}"
 : "${YT_URL:=}"
 : "${YT_LOCAL_PATH:=}"
