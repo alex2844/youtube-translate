@@ -21,6 +21,7 @@ jobs:
 
       - name: Patch files with version
         run: |
+          sed -i "s|/main/|/${GITHUB_REF_NAME}/|g" README.md
           sed -i "s|/main/|/${GITHUB_REF_NAME}/|g" ytranslate.ipynb
           sed -i "s|readonly VERSION='.*'|readonly VERSION='${{ env.VERSION }}'|g" ytranslate.sh
 
@@ -40,6 +41,16 @@ jobs:
         with:
           output: 'RELEASE_NOTES.md'
           lang: 'ru'
+
+      - name: Add Colab Link
+        run: |
+          NOTEBOOK=$(find . -name "*.ipynb" | head -n 1)
+          if [[ -n "${NOTEBOOK}" ]]; then
+            NOTEBOOK="${NOTEBOOK#./}"
+            COLAB_URL="https://colab.research.google.com/github/${{ github.repository }}/blob/${{ github.ref_name }}/${NOTEBOOK}"
+            BADGE="[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](${COLAB_URL} 'Open In Colab')"
+            sed -i "1i ${BADGE}\n" RELEASE_NOTES.md
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

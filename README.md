@@ -13,6 +13,8 @@ allows you to download videos at high speed, bypassing ISP throttling.
 It creates universally compatible files (MKV + MP3/AVC) that work smoothly
 on Chromecast, Android TV, and Chrome OS.
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)][notebook]
+
 ## Features
 
 * **Bypass Throttling**: Use the Google Colab version to download videos
@@ -38,8 +40,7 @@ on Chromecast, Android TV, and Chrome OS.
 ### Local
 
 1. Install the necessary dependencies (ffmpeg, yt-dlp, vot-cli, npm/pip).
-2. Make [`ytranslate.sh`](https://raw.githubusercontent.com/alex2844/youtube-translate/main/ytranslate.sh)
-   executable: `chmod +x ytranslate.sh`.
+2. Make [`ytranslate.sh`][script]  executable: `chmod +x ytranslate.sh`.
 3. (Optional) Create a `.env` file to store your preferences (e.g.,
    `YT_TOLANG=ru`).
 4. Run the script:
@@ -83,9 +84,7 @@ on Chromecast, Android TV, and Chrome OS.
 
 ### Google Colab (Bypass Throttling)
 
-1. Open the
-   [`ytranslate.ipynb`](https://colab.research.google.com/github/alex2844/youtube-translate/blob/main/ytranslate.ipynb)
-   file in Google Colab.
+1. Open the [`ytranslate.ipynb`][notebook] file in Google Colab.
 2. Fill in the parameters in the "Settings" block.
 3. **To simply download**, set `FROMLANG` and `TOLANG` to the same language.
 4. Run all cells.
@@ -145,8 +144,7 @@ INSTALL_DEPENDENCIES=true ./ytranslate.sh [OPTIONS] <URL>
 ### Локально
 
 1. Установите необходимые зависимости (ffmpeg, yt-dlp, vot-cli, npm/pip).
-2. Сделайте [`ytranslate.sh`](https://raw.githubusercontent.com/alex2844/youtube-translate/main/ytranslate.sh)
-   исполняемым: `chmod +x ytranslate.sh`.
+2. Сделайте [`ytranslate.sh`][script] исполняемым: `chmod +x ytranslate.sh`.
 3. (Опционально) Создайте файл `.env` для сохранения настроек
    (например, `YT_TOLANG=ru`).
 4. Запустите скрипт:
@@ -192,9 +190,7 @@ INSTALL_DEPENDENCIES=true ./ytranslate.sh [OPTIONS] <URL>
 
 ### Запуск в Google Colab (Обход замедления)
 
-1. Откройте файл
-   [`ytranslate.ipynb`](https://colab.research.google.com/github/alex2844/youtube-translate/blob/main/ytranslate.ipynb)
-   в Google Colab.
+1. Откройте файл [`ytranslate.ipynb`][notebook] в Google Colab.
 2. Заполните параметры в блоке "Settings".
 3. **Чтобы просто скачать видео**, укажите одинаковые языки в `FROMLANG`
    и `TOLANG`.
@@ -225,3 +221,5 @@ INSTALL_DEPENDENCIES=true ./ytranslate.sh [ОПЦИИ] <URL>
 [google_url]: https://youtu.be/7-rYQ2QHXgo
 [linux_img]: https://img.youtube.com/vi/gNvPf7nGXFQ/0.jpg "Linux"
 [linux_url]: https://youtu.be/gNvPf7nGXFQ
+[script]: https://raw.githubusercontent.com/alex2844/youtube-translate/main/ytranslate.sh "Open script"
+[notebook]: https://colab.research.google.com/github/alex2844/youtube-translate/blob/main/ytranslate.ipynb "Open In Colab"
