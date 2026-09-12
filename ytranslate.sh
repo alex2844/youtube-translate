@@ -90,42 +90,75 @@ function install_dependency() {
 	local pkg_manager="${2:-apt}"
 	local pkg_name="${3:-${dependency}}"
 	local sudo=""
-	if ! command -v "${dependency}" &>/dev/null; then
-		if ! "${INSTALL_DEPENDENCIES}"; then
-			error "Dependency '${dependency}' is missing. Please install it manually or set INSTALL_DEPENDENCIES=true"
-		fi
-		log "Installing: ${dependency}..."
-		[ "$(id -u)" -gt 0 ] && sudo="sudo"
-		case "${pkg_manager}" in
-			apt)
-				if command -v apt-get &>/dev/null; then
-					${sudo} apt-get update -qq && ${sudo} apt-get install -y "${pkg_name}" >/dev/null
-				else
-					error "apt-get not found. Cannot auto-install '${dependency}'. Please install it manually."
-				fi
-			;;
-			pip)
-				if ! command -v pip &>/dev/null && ! command -v pip3 &>/dev/null; then
-					install_dependency "pip" "apt" "python3-pip"
-				fi
-				python3 -m pip install --quiet --break-system-packages "${pkg_name}"
-			;;
-			npm)
-				if ! command -v npm &>/dev/null; then
-					install_dependency "npm"
-				fi
-				${sudo} npm install -g "${pkg_name}" >/dev/null
-			;;
-		esac
+	[ "$(id -u)" -gt 0 ] && sudo="sudo"
+
+	local action="Installing"
+	if command -v "${dependency}" &>/dev/null; then
+		"${INSTALL_DEPENDENCIES}" || return 0
+		action="Updating"
+	elif ! "${INSTALL_DEPENDENCIES}"; then
+		error "Dependency '${dependency}' is missing. Please install it manually or set INSTALL_DEPENDENCIES=true"
 	fi
+
+	log "${action}: ${dependency}..."
+
+	case "${pkg_manager}" in
+		apt)
+			if command -v apt-get &>/dev/null; then
+				${sudo} apt-get install -y "${pkg_name}" >/dev/null
+			elif [[ "${action}" != "Updating" ]]; then
+				error "apt-get not found. Cannot auto-install '${dependency}'. Please install it manually."
+			fi
+		;;
+		pip)
+			if ! command -v pip &>/dev/null && ! command -v pip3 &>/dev/null; then
+				install_dependency "pip" "apt" "python3-pip"
+			fi
+			local pip_opts=(--upgrade --quiet --pre)
+			if python3 -m pip help install 2>/dev/null | grep -q -- '--break-system-packages'; then
+				pip_opts+=(--break-system-packages)
+			fi
+			python3 -m pip install "${pip_opts[@]}" "${pkg_name}"
+		;;
+		npm)
+			if ! command -v npm &>/dev/null; then
+				install_dependency "npm"
+			fi
+			${sudo} npm install -g "${pkg_name}" >/dev/null
+		;;
+	esac
 }
 
 function check_dependencies() {
 	log "Checking base dependencies..."
+	if "${INSTALL_DEPENDENCIES}" && command -v apt-get &>/dev/null; then
+		local sudo=""
+		[ "$(id -u)" -gt 0 ] && sudo="sudo"
+		${sudo} apt-get update -qq 2>/dev/null || true
+	fi
 	install_dependency "ffmpeg"
 	install_dependency "python3"
-	install_dependency "yt-dlp" "pip"
-	install_dependency "vot-cli" "npm" "https://github.com/alex2844/vot-cli/tarball/yandexdisk"
+	install_dependency "yt-dlp" "pip" "yt-dlp[default]"
+
+	local js_runtime_found=false
+	for rt in deno node bun qjs; do
+		if command -v "${rt}" &>/dev/null; then
+			js_runtime_found=true
+			break
+		fi
+	done
+
+	if ! "${js_runtime_found}"; then
+		if "${INSTALL_DEPENDENCIES}" && command -v apt-get &>/dev/null; then
+			install_dependency "node" "apt" "nodejs"
+		else
+			log "⚠️  No JavaScript runtime found (deno/node/bun/qjs). YouTube extraction may fail."
+		fi
+	fi
+
+	if [[ "${YT_FROMLANG}" != "${YT_TOLANG}" ]]; then
+		install_dependency "vot-cli" "npm" "https://github.com/alex2844/vot-cli/tarball/yandexdisk"
+	fi
 }
 
 function call_ytdlp() {
@@ -415,6 +448,19 @@ function main() {
 	[[ -n "${YT_BROWSER}" ]] && YTDLP_COOKIE_ARGS+=(--cookies-from-browser "${YT_BROWSER}")
 
 	check_dependencies
+
+	if yt-dlp --help 2>/dev/null | grep -q -- '--js-runtimes'; then
+		for rt in node bun qjs; do
+			if command -v "${rt}" &>/dev/null; then
+				case "${rt}" in
+					qjs) YTDLP_OPTS+=(--js-runtimes quickjs);;
+					*) YTDLP_OPTS+=(--js-runtimes "${rt}");;
+				esac
+				break
+			fi
+		done
+	fi
+
 	mkdir -p "${YT_OUTPUT_DIR}" "${YT_TEMP_DIR}"
 
 	if [[ -n "${COLAB_RELEASE_TAG:-}" ]] && [[ "${YT_URL}" != *"://"* ]] && [[ "${YT_URL}" == *"/MyDrive/"* ]]; then
